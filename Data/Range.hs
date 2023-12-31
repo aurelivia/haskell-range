@@ -1,14 +1,15 @@
 {-# LANGUAGE MultiWayIf #-}
 
 module Data.Range
-  -- * Datatypes
-  ( Range(rangeLength)
+  ( -- * Datatypes
+    Range(rangeLength)
   -- * Range Constructors
-  , empty, singleton, range, fromList, include, includes
+  , empty, singleton, range, fromList
+  , include, includes, remove, removes
   -- * Queries
-  , within
+  , within, contains
   -- * Operations
-  , union, unions
+  , union, unions, difference
   -- * Iteration
   , getNth
   ) where
@@ -59,6 +60,18 @@ unionSpan = unionSpan' . sort where
     | (succ xub) == ylb -> unionSpan' $ (mergeSpans x y) : ys
     | otherwise         -> x : unionSpan' xs
 
+differenceSpan :: (Ord a, Enum a) => [Span a] -> [Span a] -> [Span a]
+differenceSpan [] _ = []
+differenceSpan (x:xs) ys = x' ++ differenceSpan xs ys where
+  x' = foldl' (\x' -> \y -> foldl' (\x'' -> \x -> (diff x y) ++ x'') [] x') [x] ys
+  diff (Span xlb xub _) (Span ylb yub _) = if (ylb >= xlb && ylb <= xub)
+    then if (yub >= xlb && yub <= xub)
+      then [spanOf xlb ylb, spanOf yub xub]
+      else [spanOf xlb ylb]
+    else if (yub >= xlb && yub <= xub)
+      then [spanOf ylb xub]
+      else [x]
+
 getNthOfSpan :: (Ord a, Enum a) => Int -> Span a -> a
 getNthOfSpan 0 (Span lb _ _) = lb
 getNthOfSpan i (Span lb ub len)
@@ -83,9 +96,9 @@ data Range a = Range
   , rangeLength :: Int -- ^ Retrieves the total number of elements within the range.
   } deriving (Eq)
 
-instance Show a => Show (Range a) where
+instance (Eq a, Show a) => Show (Range a) where
   showsPrec i (Range sps _) = (++) $ '[' : (intercalate ", " sps') ++ "]" where
-    sps' = map (\(Span lb ub _) -> (showsPrec i lb $ "..") ++ (showsPrec i ub $ "")) sps
+    sps' = map (\(Span lb ub _) -> if lb == ub then (showsPrec i lb $ "") else (showsPrec i lb $ "..") ++ (showsPrec i ub $ "")) sps
 
 instance (Ord a, Enum a) => Semigroup (Range a) where
   (<>) = union
@@ -121,6 +134,14 @@ include x r
 includes :: (Ord a, Enum a, Foldable t) => t a -> Range a -> Range a
 includes xs r = foldl' (\r' -> \x -> include x r') r xs
 
+remove :: (Ord a, Enum a) => a -> Range a -> Range a
+remove x r
+  | within x r = difference r $ singleton x
+  | otherwise  = r
+
+removes :: (Ord a, Enum a, Foldable t) => t a -> Range a -> Range a
+removes xs r = foldl' (\r' -> \x -> remove x r') r xs
+
 
 
 -- | Checks whether a given element falls within a given range
@@ -128,18 +149,28 @@ within :: Ord a => a -> Range a -> Bool
 within x (Range sps _) = any (\s -> inSpan x s) sps
 {-# INLINE within #-}
 
+-- | Checks whether a given range contains a given element
+contains :: Ord a => Range a -> a -> Bool
+contains (Range sps _) x = any (\s -> inSpan x s) sps
+{-# INLINE contains #-}
 
 
 
+
+fixLength :: [Span a] -> Range a
+fixLength sp = Range sp $ foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
 
 -- | Creates a new range consiting of a union of two ranges.
 union :: (Ord a, Enum a) => Range a -> Range a -> Range a
-union (Range xsp _) (Range ysp _) = Range sp' (foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp') where
-  sp' = unionSpan (xsp ++ ysp)
+union (Range xsp _) (Range ysp _) = fixLength $ unionSpan (xsp ++ ysp)
 
 -- | Creates a new range that is a union of a list of ranges.
 unions :: (Ord a, Enum a) => [Range a] -> Range a
 unions = foldl' (\r -> \x -> union x r) empty
+
+-- | Calculates the difference between two ranges, subtracting the right argument from the left
+difference :: (Ord a, Enum a) => Range a -> Range a -> Range a
+difference (Range xsp _) (Range ysp _) = fixLength $ differenceSpan xsp ysp
 
 
 
