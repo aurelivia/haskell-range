@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Data.Range
   ( -- * Datatypes
@@ -14,7 +15,9 @@ module Data.Range
   , getNth
   ) where
 
-import Data.List (intercalate, foldl', sort)
+import Prelude hiding (foldr, foldl)
+import Data.List (intercalate, sort)
+import qualified Data.List as List
 
 data Span a = Span
   { lowerBound :: a
@@ -63,7 +66,7 @@ unionSpan = unionSpan' . sort where
 differenceSpan :: (Ord a, Enum a) => [Span a] -> [Span a] -> [Span a]
 differenceSpan [] _ = []
 differenceSpan (x:xs) ys = x' ++ differenceSpan xs ys where
-  x' = foldl' (\x' -> \y -> foldl' (\x'' -> \x -> (diff x y) ++ x'') [] x') [x] ys
+  x' = List.foldl' (\x' -> \y -> List.foldl' (\x'' -> \x -> (diff x y) ++ x'') [] x') [x] ys
   diff (Span xlb xub _) (Span ylb yub _) = if (ylb >= xlb && ylb <= xub)
     then if (yub >= xlb && yub <= xub)
       then [spanOf xlb ylb, spanOf yub xub]
@@ -71,6 +74,26 @@ differenceSpan (x:xs) ys = x' ++ differenceSpan xs ys where
     else if (yub >= xlb && yub <= xub)
       then [spanOf ylb xub]
       else [x]
+
+foldSpanR :: (Ord a, Enum a) => (a -> b -> b) -> b -> a -> a -> b
+foldSpanR fn z lb ub
+  | lb == ub  = fn lb z
+  | otherwise = foldSpanR fn (fn ub z) lb (pred ub)
+
+foldSpanR' :: (Ord a, Enum a) => (a -> b -> b) -> b -> a -> a -> b
+foldSpanR' fn z lb ub
+  | lb == ub  = let !z' = fn lb z in z'
+  | otherwise = let !z' = fn ub z in foldSpanR' fn z' lb (pred ub)
+
+foldSpanL :: (Ord a, Enum a) => (b -> a -> b) -> b -> a -> a -> b
+foldSpanL fn z lb ub
+  | lb == ub  = fn z ub
+  | otherwise = foldSpanL fn (fn z lb) (succ lb) ub
+
+foldSpanL' :: (Ord a, Enum a) => (b -> a -> b) -> b -> a -> a -> b
+foldSpanL' fn z lb ub
+  | lb == ub  = let !z' = fn z ub in z'
+  | otherwise = let !z' = fn z lb in foldSpanL fn z' (succ lb) ub
 
 getNthOfSpan :: (Ord a, Enum a) => Int -> Span a -> a
 getNthOfSpan 0 (Span lb _ _) = lb
@@ -121,8 +144,8 @@ range lb ub = let l = (fromEnum ub) - (fromEnum lb) in Range [Span lb ub l] l
 {-# INLINE range #-}
 
 -- | Constructs a range from a list of values, where the resulting range covers only the values in the list.
-fromList :: (Ord a, Enum a) => [a] -> Range a
-fromList = unions . map singleton
+fromList :: (Ord a, Enum a, Foldable t) => t a -> Range a
+fromList = unions . List.foldl' (\xs -> \x -> (singleton x) : xs) []
 
 -- | Creates a new range covering an existing range plus an additional element
 include :: (Ord a, Enum a) => a -> Range a -> Range a
@@ -132,7 +155,7 @@ include x r
 
 -- | Creates a new range covering an existing range plus a set of elements
 includes :: (Ord a, Enum a, Foldable t) => t a -> Range a -> Range a
-includes xs r = foldl' (\r' -> \x -> include x r') r xs
+includes xs r = List.foldl' (\r' -> \x -> include x r') r xs
 
 remove :: (Ord a, Enum a) => a -> Range a -> Range a
 remove x r
@@ -140,7 +163,7 @@ remove x r
   | otherwise  = r
 
 removes :: (Ord a, Enum a, Foldable t) => t a -> Range a -> Range a
-removes xs r = foldl' (\r' -> \x -> remove x r') r xs
+removes xs r = List.foldl' (\r' -> \x -> remove x r') r xs
 
 
 
@@ -158,15 +181,15 @@ contains (Range sps _) x = any (\s -> inSpan x s) sps
 
 
 fixLength :: [Span a] -> Range a
-fixLength sp = Range sp $ foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
+fixLength sp = Range sp $ List.foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
 
 -- | Creates a new range consiting of a union of two ranges.
 union :: (Ord a, Enum a) => Range a -> Range a -> Range a
 union (Range xsp _) (Range ysp _) = fixLength $ unionSpan (xsp ++ ysp)
 
 -- | Creates a new range that is a union of a list of ranges.
-unions :: (Ord a, Enum a) => [Range a] -> Range a
-unions = foldl' (\r -> \x -> union x r) empty
+unions :: (Ord a, Enum a, Foldable t) => t (Range a) -> Range a
+unions = List.foldl' (\r -> \x -> union x r) empty
 
 -- | Calculates the difference between two ranges, subtracting the right argument from the left
 difference :: (Ord a, Enum a) => Range a -> Range a -> Range a
@@ -175,6 +198,24 @@ difference (Range xsp _) (Range ysp _) = fixLength $ differenceSpan xsp ysp
 
 
 
+
+foldr :: (Ord a, Enum a) => (a -> b -> b) -> b -> Range a -> b
+foldr _ z (Range [] 0) = z
+foldr fn z (Range sps _) = List.foldr (\(Span lb ub _) -> \z' -> foldSpanR fn z' lb ub) z sps
+
+foldr' :: (Ord a, Enum a) => (a -> b -> b) -> b -> Range a -> b
+foldr' _ z (Range [] 0) = z
+foldr' fn z (Range sps _) = foldr'' (\(Span lb ub _) -> \z' -> foldSpanR' fn z' lb ub) z sps where
+  foldr'' fn z []     = z
+  foldr'' fn z (x:xs) = let !z' = fn x (foldr'' fn z xs) in z'
+
+foldl :: (Ord a, Enum a) => (b -> a -> b) -> b -> Range a -> b
+foldl _ z (Range [] 0) = z
+foldl fn z (Range sps _) = List.foldl (\z' -> \(Span lb ub _) -> foldSpanL fn z' lb ub) z sps
+
+foldl' :: (Ord a, Enum a) => (b -> a -> b) -> b -> Range a -> b
+foldl' _ z (Range [] 0) = z
+foldl' fn z (Range sps _) = List.foldl' (\z' -> \(Span lb ub _) -> foldSpanL' fn z' lb ub) z sps
 
 -- | Gets the nth element from the lower bound of a range, of the values within a range
 getNth :: (Ord a, Enum a) => Int -> Range a -> a
