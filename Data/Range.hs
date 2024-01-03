@@ -42,6 +42,20 @@ inSpan :: Ord a => a -> Span a -> Bool
 inSpan x (Span lb ub _) = x >= lb && x <= ub
 {-# INLINE inSpan #-}
 
+insert :: (Ord a, Enum a) => a -> [Span a] -> [Span a]
+insert x [] = [(Span x x 1)]
+insert x ya@(y@(Span lb ub i):ys)
+  | x >= lb && x <= ub = ya
+  | x == (pred lb)     = (Span x ub (i + 1)) : ys
+  | x < lb             = (Span x x 1) : ya
+  | x == (succ ub)     = join (Span lb x (i + 1)) ys
+  | otherwise          = join y $ insert x ys
+  where
+    join x [] = [x]
+    join x@(Span xlb xub xi) ya@((Span ylb yub yi):ys)
+      | xub >= ylb = (Span xlb yub ((xi + yi) - 1)) : ys
+      | otherwise  = x : ya
+
 spanContains :: Ord a => Span a -> Span a -> Bool
 spanContains (Span xlb xub _) (Span ylb yub _) = xlb >= ylb && xlb <= yub
   && xub >= ylb && xub <= yub
@@ -120,9 +134,15 @@ data Range a = Range
   , rangeLength :: Int -- ^ Retrieves the total number of elements within the range.
   } deriving (Eq)
 
+fixLength :: [Span a] -> Range a
+fixLength sp = Range sp $ List.foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
+
 instance (Eq a, Show a) => Show (Range a) where
   showsPrec i (Range sps _) = (++) $ '[' : (intercalate ", " sps') ++ "]" where
-    sps' = map (\(Span lb ub _) -> if lb == ub then (showsPrec i lb $ "") else (showsPrec i lb $ "..") ++ (showsPrec i ub $ "")) sps
+    sps' = map (\(Span lb ub _) -> if lb == ub
+        then (showsPrec i lb $ "")
+        else (showsPrec i lb $ "..") ++ (showsPrec i ub $ "")
+      ) sps
 
 instance (Ord a, Enum a) => Semigroup (Range a) where
   (<>) = union
@@ -146,17 +166,15 @@ range lb ub = let l = (fromEnum ub) - (fromEnum lb) in Range [Span lb ub l] l
 
 -- | Constructs a range from a list of values, where the resulting range covers only the values in the list.
 fromList :: (Ord a, Enum a, Foldable t) => t a -> Range a
-fromList = unions . List.foldl' (\xs -> \x -> (singleton x) : xs) []
+fromList = fixLength . List.foldl' (\sps -> \x -> insert x sps) []
 
 -- | Creates a new range covering an existing range plus an additional element
 include :: (Ord a, Enum a) => a -> Range a -> Range a
-include x r
-  | within x r = r
-  | otherwise  = union r $ singleton x
+include x (Range sps _) = fixLength $ insert x sps
 
 -- | Creates a new range covering an existing range plus a set of elements
 includes :: (Ord a, Enum a, Foldable t) => t a -> Range a -> Range a
-includes xs r = List.foldl' (\r' -> \x -> include x r') r xs
+includes xs r = union r $ fromList xs
 
 remove :: (Ord a, Enum a) => a -> Range a -> Range a
 remove x r
@@ -164,7 +182,7 @@ remove x r
   | otherwise  = r
 
 removes :: (Ord a, Enum a, Foldable t) => t a -> Range a -> Range a
-removes xs r = List.foldl' (\r' -> \x -> remove x r') r xs
+removes xs r = difference r $ fromList xs
 
 
 
@@ -180,9 +198,6 @@ contains (Range sps _) x = any (\s -> inSpan x s) sps
 
 
 
-
-fixLength :: [Span a] -> Range a
-fixLength sp = Range sp $ List.foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
 
 -- | Creates a new range consiting of a union of two ranges.
 union :: (Ord a, Enum a) => Range a -> Range a -> Range a
