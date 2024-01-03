@@ -19,120 +19,7 @@ import Prelude hiding (foldr, foldl)
 import Data.List (intercalate, sort)
 import qualified Data.List as List
 
-data Span a = Span
-  { lowerBound :: a
-  , upperBound :: a
-  , spanLength :: Int
-  } deriving (Eq)
-
-instance Ord a => Ord (Span a) where
-  compare (Span xlb xub _) (Span ylb yub _) = if
-    | xlb < ylb -> LT
-    | ylb < xlb -> GT
-    | xub < yub -> LT
-    | yub < xub -> GT
-    | otherwise -> EQ
-
-spanOf :: (Ord a, Enum a) => a -> a -> Span a
-spanOf lb ub
-  | lb > ub   = spanOf ub lb
-  | otherwise = Span lb ub ((+) 1 $ (fromEnum ub) - (fromEnum lb))
-
-inSpan :: Ord a => a -> Span a -> Bool
-inSpan x (Span lb ub _) = x >= lb && x <= ub
-{-# INLINE inSpan #-}
-
-insert :: (Ord a, Enum a) => a -> [Span a] -> [Span a]
-insert x [] = [(Span x x 1)]
-insert x ya@(y@(Span lb ub i):ys)
-  | x >= lb && x <= ub = ya
-  | x == (pred lb)     = (Span x ub (i + 1)) : ys
-  | x < lb             = (Span x x 1) : ya
-  | x == (succ ub)     = join (Span lb x (i + 1)) ys
-  | otherwise          = join y $ insert x ys
-  where
-    join x [] = [x]
-    join x@(Span xlb xub xi) ya@((Span ylb yub yi):ys)
-      | xub >= ylb = (Span xlb yub ((xi + yi) - 1)) : ys
-      | otherwise  = x : ya
-
-spanContains :: Ord a => Span a -> Span a -> Bool
-spanContains (Span xlb xub _) (Span ylb yub _) = xlb >= ylb && xlb <= yub
-  && xub >= ylb && xub <= yub
-
-spanOverlaps :: Ord a => Span a -> Span a -> Bool
-spanOverlaps (Span xlb xub _) (Span ylb yub _) = (xlb >= ylb && xlb <= yub)
-  || (xub >= ylb && xub <= yub)
-
-mergeSpans :: (Ord a, Enum a) => Span a -> Span a -> Span a
-mergeSpans (Span xlb xub _) (Span ylb yub _) = spanOf (min xlb ylb) (max xub yub)
-
-unionSpan :: (Ord a, Enum a) => [Span a] -> [Span a]
-unionSpan = unionSpan' . sort where
-  unionSpan' [] = []
-  unionSpan' (x:[]) = [x]
-  unionSpan' (x@(Span _ xub _):xs@(y@(Span ylb _ _):ys)) = if
-    | spanContains x y  -> unionSpan' xs
-    | spanOverlaps x y  -> unionSpan' $ (mergeSpans x y) : ys
-    | (succ xub) == ylb -> unionSpan' $ (mergeSpans x y) : ys
-    | otherwise         -> x : unionSpan' xs
-
-differenceSpan :: (Ord a, Enum a) => [Span a] -> [Span a] -> [Span a]
-differenceSpan [] _ = []
-differenceSpan (x:xs) ys = x' ++ differenceSpan xs ys where
-  x' = List.foldl' (\x' -> \y -> List.foldl' (\x'' -> \x -> (diff x y) ++ x'') [] x') [x] ys
-  diff x@(Span xlb xub _) (Span ylb yub _) = if
-    | ylb == xlb -> if (yub < xub) then [spanOf (succ yub) xub] else []
-    | ylb >  xlb -> if (yub < xub)
-                      then [spanOf xlb (pred ylb), spanOf (succ yub) xub]
-                      else if (ylb > xub) then [x] else [spanOf xlb (pred ylb)]
-    | yub <  xub -> if (yub < ylb) then [x] else [spanOf (succ yub) xub]
-    | otherwise  -> []
-
-
-foldSpanR :: (Ord a, Enum a) => (a -> b -> b) -> b -> a -> a -> b
-foldSpanR fn z lb ub
-  | lb == ub  = fn lb z
-  | otherwise = foldSpanR fn (fn ub z) lb (pred ub)
-
-foldSpanR' :: (Ord a, Enum a) => (a -> b -> b) -> b -> a -> a -> b
-foldSpanR' fn z lb ub
-  | lb == ub  = let !z' = fn lb z in z'
-  | otherwise = let !z' = fn ub z in foldSpanR' fn z' lb (pred ub)
-
-foldSpanL :: (Ord a, Enum a) => (b -> a -> b) -> b -> a -> a -> b
-foldSpanL fn z lb ub
-  | lb == ub  = fn z ub
-  | otherwise = foldSpanL fn (fn z lb) (succ lb) ub
-
-foldSpanL' :: (Ord a, Enum a) => (b -> a -> b) -> b -> a -> a -> b
-foldSpanL' fn z lb ub
-  | lb == ub  = let !z' = fn z ub in z'
-  | otherwise = let !z' = fn z lb in foldSpanL fn z' (succ lb) ub
-
-getNthOfSpan :: (Ord a, Enum a) => Int -> Span a -> a
-getNthOfSpan 0 (Span lb _ _) = lb
-getNthOfSpan i (Span lb ub len)
-  | i == (len - 1)  = ub
-  | i > len         = error "Out of bounds."
-  | i <= mid        = getNth' succ i lb
-  | otherwise       = getNth' pred (i - mid) ub
-  where
-    mid = div ((fromEnum ub) - (fromEnum lb)) 2
-    getNth' _  0 x = x
-    getNth' fn i x = getNth' fn (i - 1) (fn x)
-
-
-
-
-
-
-
--- | A range.
-data Range a = Range
-  { spans :: [ Span a ]
-  , rangeLength :: Int -- ^ Retrieves the total number of elements within the range.
-  } deriving (Eq)
+import Data.Range.Internal
 
 fixLength :: [Span a] -> Range a
 fixLength sp = Range sp $ List.foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
@@ -161,7 +48,7 @@ singleton x = Range [Span x x 1] 1
 
 -- | Constructs a new range from a given lower bound to a given upper bound (both inclusive.)
 range :: (Ord a, Enum a) => a -> a -> Range a
-range lb ub = let l = (fromEnum ub) - (fromEnum lb) in Range [Span lb ub l] l
+range lb ub = let l = 1 + (fromEnum ub) - (fromEnum lb) in Range [Span lb ub l] l
 {-# INLINE range #-}
 
 -- | Constructs a range from a list of values, where the resulting range covers only the values in the list.
