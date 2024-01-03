@@ -67,13 +67,14 @@ differenceSpan :: (Ord a, Enum a) => [Span a] -> [Span a] -> [Span a]
 differenceSpan [] _ = []
 differenceSpan (x:xs) ys = x' ++ differenceSpan xs ys where
   x' = List.foldl' (\x' -> \y -> List.foldl' (\x'' -> \x -> (diff x y) ++ x'') [] x') [x] ys
-  diff (Span xlb xub _) (Span ylb yub _) = if (ylb >= xlb && ylb <= xub)
-    then if (yub >= xlb && yub <= xub)
-      then [spanOf xlb ylb, spanOf yub xub]
-      else [spanOf xlb ylb]
-    else if (yub >= xlb && yub <= xub)
-      then [spanOf ylb xub]
-      else [x]
+  diff x@(Span xlb xub _) (Span ylb yub _) = if
+    | ylb == xlb -> if (yub < xub) then [spanOf (succ yub) xub] else []
+    | ylb >  xlb -> if (yub < xub)
+                      then [spanOf xlb (pred ylb), spanOf (succ yub) xub]
+                      else if (ylb > xub) then [x] else [spanOf xlb (pred ylb)]
+    | yub <  xub -> if (yub < ylb) then [x] else [spanOf (succ yub) xub]
+    | otherwise  -> []
+
 
 foldSpanR :: (Ord a, Enum a) => (a -> b -> b) -> b -> a -> a -> b
 foldSpanR fn z lb ub
