@@ -26,18 +26,13 @@ data Range a = Range
 
 fixLength :: [Span a] -> Range a
 fixLength sp = Range sp $ foldl' (\s -> \(Span _ _ l) -> s + l) 0 sp
-
-instance (Eq a, Show a) => Show (Range a) where
-  showsPrec i (Range sps _) = (++) $ '[' : (intercalate ", " sps') ++ "]" where
-    sps' = map (\(Span lb ub _) -> if lb == ub
-        then (showsPrec i lb $ "")
-        else (showsPrec i lb $ "..") ++ (showsPrec i ub $ "")
-      ) sps
+{-# INLINE fixLength #-}
 
 spanOf :: (Ord a, Enum a) => a -> a -> Span a
 spanOf lb ub
   | lb > ub   = spanOf ub lb
   | otherwise = Span lb ub (1 + (fromEnum ub) - (fromEnum lb))
+{-# INLINE spanOf #-}
 
 inSpan :: Ord a => a -> Span a -> Bool
 inSpan x (Span lb ub _) = x >= lb && x <= ub
@@ -60,13 +55,16 @@ insert x ya@(y@(Span lb ub i):ys)
 spanContains :: Ord a => Span a -> Span a -> Bool
 spanContains (Span xlb xub _) (Span ylb yub _) = xlb >= ylb && xlb <= yub
   && xub >= ylb && xub <= yub
+{-# INLINE spanContains #-}
 
 spanOverlaps :: Ord a => Span a -> Span a -> Bool
 spanOverlaps (Span xlb xub _) (Span ylb yub _) = (xlb >= ylb && xlb <= yub)
   || (xub >= ylb && xub <= yub)
+{-# INLINE spanOverlaps #-}
 
 mergeSpans :: (Ord a, Enum a) => Span a -> Span a -> Span a
 mergeSpans (Span xlb xub _) (Span ylb yub _) = spanOf (min xlb ylb) (max xub yub)
+{-# INLINE mergeSpans #-}
 
 unionSpan :: (Ord a, Enum a) => [Span a] -> [Span a]
 unionSpan = unionSpan' . sort where
