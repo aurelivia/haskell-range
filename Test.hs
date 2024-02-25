@@ -9,7 +9,9 @@ main = defaultMain $ testGroup "Range"
   [ construction
   , union
   , fromList
+  , include
   , difference
+  , getNth
   ]
 
 construction = testGroup "Construction"
@@ -43,6 +45,14 @@ fromList = testGroup "From List"
   , testCase "leap frog 2" $ (R.fromList [ 1, 4, 2, 5, 3, 6 ]) @?= (R.range 1 6)
   ]
 
+include = testGroup "Include"
+  [ testCase "before" $ (R.include 0 (R.range 3 5)) @?= (R.union (R.singleton 0) (R.range 3 5))
+  , testCase "lower bound" $ (R.include 3 (R.range 3 5)) @?= (R.range 3 5)
+  , testCase "within" $ (R.include 4 (R.range 3 5)) @?= (R.range 3 5)
+  , testCase "upper bound" $ (R.include 5 (R.range 3 5)) @?= (R.range 3 5)
+  , testCase "after" $ (R.include 8 (R.range 3 5)) @?= (R.union (R.range 3 5) (R.singleton 8))
+  ]
+
 difference = testGroup "Difference"
   [ testCase "entirely below" $ (R.difference (R.range 4 7) (R.range 0 2)) @?= (R.range 4 7)
   , testCase "at lower bound" $ (R.difference (R.range 4 7) (R.range 0 4)) @?= (R.range 5 7)
@@ -54,4 +64,16 @@ difference = testGroup "Difference"
   , testCase "covering upper" $ (R.difference (R.range 4 7) (R.range 6 9)) @?= (R.range 4 5)
   , testCase "at upper bound" $ (R.difference (R.range 4 7) (R.range 7 9)) @?= (R.range 4 6)
   , testCase "entirely above" $ (R.difference (R.range 4 7) (R.range 8 9)) @?= (R.range 4 7)
+  ]
+
+getNth = testGroup "GetNth"
+  [ testCase "zeroth" $ (R.getNth 0 (R.range 0 10)) @?= 0
+  , testCase "mid" $ (R.getNth 5 (R.range 0 10)) @?= 5
+  , testCase "last" $ (R.getNth 10 (R.range 0 10)) @?= 10
+  , testCase "disjoint first" $ (R.getNth 5 (R.union (R.range 0 4) (R.range 6 10))) @?= 6
+  , testCase "disjoint mid" $ (R.getNth 7 (R.union (R.range 0 4) (R.range 6 10))) @?= 8
+  , testCase "disjoint last" $ (R.getNth 4 (R.union (R.range 0 4) (R.range 6 10))) @?= 4
+  , testCase "very disjoint 1" $ (R.getNth 4 (R.unions [ R.range 0 2, R.range 4 6, R.range 8 10 ])) @?= 5
+  , testCase "very disjoint 2" $ (R.getNth 5 (R.unions [ R.range 0 2, R.range 4 6, R.range 8 10 ])) @?= 6
+  , testCase "very disjoint 3" $ (R.getNth 7 (R.unions [ R.range 0 2, R.range 4 6, R.range 8 10 ])) @?= 9
   ]
